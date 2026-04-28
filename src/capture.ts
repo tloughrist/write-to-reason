@@ -14,7 +14,7 @@ function projectId(filePath: string): string {
 	return parts.length > 1 ? parts[0]! : 'root';
 }
 
-export function buildCaptureExtension(app: App, storage: StorageManager) {
+export function buildCaptureExtension(app: App, storage: StorageManager, getThreshold: () => number) {
 
 	return ViewPlugin.fromClass(class {
 		update(update: ViewUpdate) {
@@ -24,7 +24,7 @@ export function buildCaptureExtension(app: App, storage: StorageManager) {
 				const removed = update.startState.doc.sliceString(fromA, toA);
 				const insertedText = inserted.toString();
 
-				if (wordCount(removed) - wordCount(insertedText) < WORD_THRESHOLD) return;
+				if (wordCount(removed) - wordCount(insertedText) < getThreshold()) return;
 
 				const filePath = app.workspace.getActiveFile()?.path ?? 'unknown';
 				const oldDoc = update.startState.doc;

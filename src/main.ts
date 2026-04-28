@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { Editor, Plugin } from 'obsidian';
 import { buildCaptureExtension } from './capture';
 import { StorageManager } from './storage';
 import { WriteToReasonSettingTab, WriteToReasonSettings, DEFAULT_SETTINGS } from './settings';
@@ -12,16 +12,19 @@ export default class WriteToReasonPlugin extends Plugin {
 		await this.loadSettings();
 		this.storage = new StorageManager(this.app.vault);
 
-		this.registerEditorExtension(buildCaptureExtension(this.app, this.storage));
+		this.registerEditorExtension(
+			buildCaptureExtension(this.app, this.storage, () => this.settings.wordThreshold)
+		);
+
 		this.addSettingTab(new WriteToReasonSettingTab(this.app, this));
 
 		this.addCommand({
 			id: 'search-deleted-ideas',
 			name: 'Search deleted ideas',
-			callback: () => {
+			editorCallback: (editor: Editor) => {
 				const file = this.app.workspace.getActiveFile();
 				if (!file) return;
-				new QueryModal(this.app, file.path, this.storage, this.settings.apiKey).open();
+				new QueryModal(this.app, editor, file.path, this.storage, this.settings.apiKey).open();
 			}
 		});
 	}
