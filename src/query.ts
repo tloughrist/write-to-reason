@@ -1,10 +1,44 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Editor } from 'obsidian';
-import { StorageManager } from './storage';
+import { DeletionRecord, StorageManager } from './storage';
 
 export interface QueryResult {
 	summary: string;
 	excerpt: string;
+}
+
+export async function generateNames(
+	records: DeletionRecord[],
+	apiKey: string
+): Promise<Record<string, string>> {
+	if (records.length === 0) return {};
+
+	const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+
+	const passages = records.map((r, i) => `Passage ${i + 1} (id: ${r.id}):\n${r.raw_text.slice(0, 300)}`).join('\n\n');
+
+	const message = await client.messages.create({
+		model: 'claude-sonnet-4-6',
+		max_tokens: 512,
+		messages: [{
+			role: 'user',
+			content: `Give each of these deleted passages a pithy 3-5 word name that captures its core idea (like "Reasons as Balance" or "Memory as Archive"). Return a JSON object mapping each passage id to its name.
+
+${passages}
+
+Return only valid JSON, no other text. Example: {"uuid-here": "Reasons as Balance"}`
+		}]
+	});
+
+	const content = message.content[0];
+	if (content?.type !== 'text') return {};
+
+	try {
+		const cleaned = content.text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+		return JSON.parse(cleaned) as Record<string, string>;
+	} catch {
+		return {};
+	}
 }
 
 function parseResults(text: string): QueryResult[] {

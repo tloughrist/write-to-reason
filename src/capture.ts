@@ -38,6 +38,7 @@ export function buildCaptureExtension(app: App, storage: StorageManager, getThre
 					context_before: oldDoc.sliceString(Math.max(0, fromA - CONTEXT_CHARS), fromA),
 					context_after: oldDoc.sliceString(toA, Math.min(oldDoc.length, toA + CONTEXT_CHARS)),
 					embedding: null,
+					name: null,
 				};
 
 				storage.append(record);

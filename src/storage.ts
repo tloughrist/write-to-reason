@@ -12,6 +12,7 @@ export interface DeletionRecord {
 	context_before: string;
 	context_after: string;
 	embedding: null;
+	name: string | null;
 }
 
 export class StorageManager {
@@ -29,6 +30,14 @@ export class StorageManager {
 		}
 		const raw = await this.vault.adapter.read(STORAGE_FILE);
 		return JSON.parse(raw) as DeletionRecord[];
+	}
+
+	async updateNames(updates: Record<string, string>): Promise<void> {
+		const records = await this.load();
+		for (const record of records) {
+			if (updates[record.id]) record.name = updates[record.id] ?? null;
+		}
+		await this.write(records);
 	}
 
 	private async write(records: DeletionRecord[]): Promise<void> {
