@@ -14,8 +14,7 @@ function projectId(filePath: string): string {
 	return parts.length > 1 ? parts[0]! : 'root';
 }
 
-export function buildCaptureExtension(app: App) {
-	const storage = new StorageManager(app.vault);
+export function buildCaptureExtension(app: App, storage: StorageManager) {
 
 	return ViewPlugin.fromClass(class {
 		update(update: ViewUpdate) {
