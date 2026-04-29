@@ -1,8 +1,8 @@
 import { ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { App } from 'obsidian';
 import { StorageManager } from './storage';
+import { generateEmbedding } from './embeddings';
 
-const WORD_THRESHOLD = 50;
 const CONTEXT_CHARS = 200;
 
 function wordCount(text: string): number {
@@ -14,8 +14,12 @@ function projectId(filePath: string): string {
 	return parts.length > 1 ? parts[0]! : 'root';
 }
 
-export function buildCaptureExtension(app: App, storage: StorageManager, getThreshold: () => number) {
-
+export function buildCaptureExtension(
+	app: App,
+	storage: StorageManager,
+	getThreshold: () => number,
+	getVoyageKey: () => string,
+) {
 	return ViewPlugin.fromClass(class {
 		update(update: ViewUpdate) {
 			if (!update.docChanged) return;
@@ -41,7 +45,16 @@ export function buildCaptureExtension(app: App, storage: StorageManager, getThre
 					name: null,
 				};
 
-				storage.append(record);
+				storage.append(record).then(async () => {
+					const voyageKey = getVoyageKey();
+					if (!voyageKey) return;
+					try {
+						const embedding = await generateEmbedding(removed, voyageKey);
+						await storage.updateEmbeddings({ [record.id]: embedding });
+					} catch {
+						// Silent fail; embedding will be backfilled on first cross-document search
+					}
+				});
 			});
 		}
 	});

@@ -4,6 +4,11 @@ import { StorageManager } from './storage';
 import { WriteToReasonSettingTab, WriteToReasonSettings, DEFAULT_SETTINGS } from './settings';
 import { QueryModal } from './modal';
 
+function projectIdFromPath(path: string): string {
+	const parts = path.split('/');
+	return parts.length > 1 ? parts[0]! : 'root';
+}
+
 export default class WriteToReasonPlugin extends Plugin {
 	settings: WriteToReasonSettings;
 	private storage: StorageManager;
@@ -13,7 +18,12 @@ export default class WriteToReasonPlugin extends Plugin {
 		this.storage = new StorageManager(this.app.vault);
 
 		this.registerEditorExtension(
-			buildCaptureExtension(this.app, this.storage, () => this.settings.wordThreshold)
+			buildCaptureExtension(
+				this.app,
+				this.storage,
+				() => this.settings.wordThreshold,
+				() => this.settings.voyageApiKey,
+			)
 		);
 
 		this.addSettingTab(new WriteToReasonSettingTab(this.app, this));
@@ -24,7 +34,16 @@ export default class WriteToReasonPlugin extends Plugin {
 			editorCallback: (editor: Editor) => {
 				const file = this.app.workspace.getActiveFile();
 				if (!file) return;
-				new QueryModal(this.app, editor, file.path, this.storage, this.settings.apiKey).open();
+				new QueryModal(
+					this.app,
+					editor,
+					file.path,
+					projectIdFromPath(file.path),
+					this.storage,
+					this.settings.apiKey,
+					this.settings.voyageApiKey,
+					this.settings.defaultScope,
+				).open();
 			}
 		});
 	}

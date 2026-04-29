@@ -11,7 +11,7 @@ export interface DeletionRecord {
 	project_id: string;
 	context_before: string;
 	context_after: string;
-	embedding: null;
+	embedding: number[] | null;
 	name: string | null;
 }
 
@@ -36,6 +36,14 @@ export class StorageManager {
 		const records = await this.load();
 		for (const record of records) {
 			if (updates[record.id]) record.name = updates[record.id] ?? null;
+		}
+		await this.write(records);
+	}
+
+	async updateEmbeddings(updates: Record<string, number[]>): Promise<void> {
+		const records = await this.load();
+		for (const record of records) {
+			if (updates[record.id]) record.embedding = updates[record.id] ?? null;
 		}
 		await this.write(records);
 	}

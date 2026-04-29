@@ -1,19 +1,35 @@
 import { App, Editor, Modal } from 'obsidian';
 import { DeletionRecord, StorageManager } from './storage';
-import { QueryResult, generateNames, queryDeletions, integrateIdea } from './query';
+import { QueryResult, filterByScope, generateNames, queryDeletions, integrateIdea } from './query';
+import { SearchScope } from './settings';
 
 export class QueryModal extends Modal {
 	private editor: Editor;
 	private documentId: string;
+	private projectId: string;
 	private storage: StorageManager;
 	private apiKey: string;
+	private voyageKey: string;
+	private searchScope: SearchScope;
 
-	constructor(app: App, editor: Editor, documentId: string, storage: StorageManager, apiKey: string) {
+	constructor(
+		app: App,
+		editor: Editor,
+		documentId: string,
+		projectId: string,
+		storage: StorageManager,
+		apiKey: string,
+		voyageKey: string,
+		defaultScope: SearchScope,
+	) {
 		super(app);
 		this.editor = editor;
 		this.documentId = documentId;
+		this.projectId = projectId;
 		this.storage = storage;
 		this.apiKey = apiKey;
+		this.voyageKey = voyageKey;
+		this.searchScope = defaultScope;
 	}
 
 	async onOpen() {
@@ -23,82 +39,126 @@ export class QueryModal extends Modal {
 
 		contentEl.createEl('h2', { text: 'Deleted ideas' });
 
-		const searchRow = contentEl.createEl('div');
-		searchRow.style.cssText = 'display:flex; gap:8px; margin-bottom:12px;';
+		const controls = contentEl.createEl('div');
+		controls.style.cssText = 'display:flex; gap:8px; margin-bottom:12px; align-items:center;';
 
-		const filterInput = searchRow.createEl('input', {
+		const filterInput = controls.createEl('input', {
 			type: 'text',
 			placeholder: 'Filter by name...',
 		});
 		filterInput.style.cssText = 'flex:1; padding:4px;';
 
-		const aiSearchBtn = searchRow.createEl('button', { text: 'Search with AI' });
+		const scopeSelect = controls.createEl('select');
+		const caretSvg = "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/></svg>";
+		scopeSelect.style.cssText = `
+			padding: 4px 24px 4px 8px;
+			appearance: none;
+			-webkit-appearance: none;
+			background-image: url("data:image/svg+xml;utf8,${caretSvg}");
+			background-repeat: no-repeat;
+			background-position: right 8px center;
+			background-color: var(--background-primary);
+			border: 1px solid var(--background-modifier-border);
+			border-radius: 4px;
+		`;
+		const opts: [SearchScope, string][] = [
+			['document', 'This document'],
+			['project', 'This project'],
+			['vault', 'Entire vault'],
+		];
+		for (const [value, label] of opts) {
+			const opt = scopeSelect.createEl('option', { text: label });
+			opt.value = value;
+		}
+		scopeSelect.value = this.searchScope;
+
+		const aiSearchBtn = controls.createEl('button', { text: 'Search with AI' });
 
 		const listContainer = contentEl.createEl('div');
 		const aiContainer = contentEl.createEl('div');
 		aiContainer.style.display = 'none';
 
-		// Load records and generate missing names
 		const allRecords = await this.storage.load();
-		const records = allRecords.filter(r => r.document_id === this.documentId);
 
-		if (records.length === 0) {
-			listContainer.setText('No deleted ideas captured for this document yet.');
-			return;
-		}
+		const refreshList = async () => {
+			const scopedRecords = filterByScope(allRecords, this.searchScope, this.documentId, this.projectId);
 
-		const unnamed = records.filter(r => !r.name);
-		if (unnamed.length > 0) {
-			listContainer.setText('Generating idea names...');
-			try {
-				const names = await generateNames(unnamed, this.apiKey);
-				await this.storage.updateNames(names);
-				for (const r of records) {
-					if (names[r.id]) r.name = names[r.id] ?? null;
-				}
-			} catch {
-				// Fall back to showing records without names
+			if (scopedRecords.length === 0) {
+				listContainer.empty();
+				listContainer.setText('No deleted ideas captured at this scope yet.');
+				return;
 			}
-		}
 
-		listContainer.empty();
-		this.renderList(listContainer, records, filterInput);
+			const unnamed = scopedRecords.filter(r => !r.name);
+			if (unnamed.length > 0) {
+				listContainer.setText('Generating idea names...');
+				try {
+					const names = await generateNames(unnamed, this.apiKey);
+					await this.storage.updateNames(names);
+					for (const r of scopedRecords) {
+						if (names[r.id]) r.name = names[r.id] ?? null;
+					}
+				} catch {
+					// Fall back to showing records without names
+				}
+			}
 
-		// Filter as user types
+			listContainer.empty();
+			this.renderList(listContainer, scopedRecords, filterInput);
+		};
+
+		await refreshList();
+
 		filterInput.addEventListener('input', () => {
-			this.renderList(listContainer, records, filterInput);
+			if (aiContainer.style.display === 'none') {
+				const scopedRecords = filterByScope(allRecords, this.searchScope, this.documentId, this.projectId);
+				this.renderList(listContainer, scopedRecords, filterInput);
+			}
 		});
 
-		// AI search mode
+		scopeSelect.addEventListener('change', async () => {
+			this.searchScope = scopeSelect.value as SearchScope;
+			if (aiContainer.style.display === 'none') {
+				await refreshList();
+			}
+		});
+
 		let aiMode = false;
-		aiSearchBtn.addEventListener('click', async () => {
-			if (!aiMode) {
-				aiMode = true;
+		aiSearchBtn.addEventListener('click', () => {
+			aiMode = !aiMode;
+			if (aiMode) {
 				listContainer.style.display = 'none';
 				aiContainer.style.display = 'block';
 				aiSearchBtn.setText('Browse all');
-				filterInput.placeholder = 'What are you looking for?';
+				filterInput.placeholder = 'What are you looking for? (Enter to search)';
 				filterInput.value = '';
 				filterInput.focus();
 			} else {
-				aiMode = false;
 				aiContainer.style.display = 'none';
 				listContainer.style.display = 'block';
 				aiSearchBtn.setText('Search with AI');
 				filterInput.placeholder = 'Filter by name...';
 				filterInput.value = '';
-				this.renderList(listContainer, records, filterInput);
+				const scopedRecords = filterByScope(allRecords, this.searchScope, this.documentId, this.projectId);
+				this.renderList(listContainer, scopedRecords, filterInput);
 			}
 		});
 
 		filterInput.addEventListener('keydown', async (e) => {
 			if (e.key !== 'Enter' || !aiMode) return;
 			if (!filterInput.value.trim() || !this.apiKey) return;
+			if (this.searchScope !== 'document' && !this.voyageKey) {
+				aiContainer.setText('Cross-document search requires a Voyage AI API key. Add one in plugin settings.');
+				return;
+			}
 
 			aiSearchBtn.disabled = true;
 			aiContainer.setText('Searching...');
 			try {
-				const results = await queryDeletions(filterInput.value, this.documentId, this.storage, this.apiKey);
+				const results = await queryDeletions(
+					filterInput.value, this.searchScope, this.documentId, this.projectId,
+					this.storage, this.apiKey, this.voyageKey,
+				);
 				aiContainer.empty();
 				if (results.length === 0) {
 					aiContainer.setText('No relevant ideas found.');
@@ -132,7 +192,12 @@ export class QueryModal extends Modal {
 			item.style.cssText = 'border:1px solid var(--background-modifier-border); border-radius:4px; padding:10px 12px; margin-bottom:8px; cursor:pointer;';
 
 			const nameEl = item.createEl('div', { text: record.name ?? 'Untitled idea' });
-			nameEl.style.cssText = 'font-weight:bold;';
+			nameEl.style.fontWeight = 'bold';
+
+			if (this.searchScope !== 'document') {
+				const meta = item.createEl('div', { text: record.document_id });
+				meta.style.cssText = 'font-size:0.8em; color:var(--text-muted); margin-top:2px;';
+			}
 
 			const details = item.createEl('div');
 			details.style.display = 'none';

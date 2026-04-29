@@ -1,10 +1,46 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Editor } from 'obsidian';
 import { DeletionRecord, StorageManager } from './storage';
+import { generateEmbedding, generateEmbeddings, cosineSimilarity } from './embeddings';
+import { SearchScope } from './settings';
+
+const TOP_N = 20;
 
 export interface QueryResult {
 	summary: string;
 	excerpt: string;
+}
+
+export function filterByScope(
+	records: DeletionRecord[],
+	scope: SearchScope,
+	documentId: string,
+	projectId: string,
+): DeletionRecord[] {
+	if (scope === 'document') return records.filter(r => r.document_id === documentId);
+	if (scope === 'project') return records.filter(r => r.project_id === projectId);
+	return records;
+}
+
+async function ensureEmbeddings(
+	records: DeletionRecord[],
+	storage: StorageManager,
+	voyageKey: string,
+): Promise<DeletionRecord[]> {
+	const missing = records.filter(r => !r.embedding);
+	if (missing.length === 0) return records;
+
+	const embeddings = await generateEmbeddings(missing.map(r => r.raw_text), voyageKey);
+	const updates: Record<string, number[]> = {};
+	missing.forEach((r, i) => {
+		const e = embeddings[i];
+		if (e) {
+			r.embedding = e;
+			updates[r.id] = e;
+		}
+	});
+	await storage.updateEmbeddings(updates);
+	return records;
 }
 
 export async function generateNames(
@@ -14,7 +50,6 @@ export async function generateNames(
 	if (records.length === 0) return {};
 
 	const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-
 	const passages = records.map((r, i) => `Passage ${i + 1} (id: ${r.id}):\n${r.raw_text.slice(0, 300)}`).join('\n\n');
 
 	const message = await client.messages.create({
@@ -48,17 +83,32 @@ function parseResults(text: string): QueryResult[] {
 
 export async function queryDeletions(
 	query: string,
+	scope: SearchScope,
 	documentId: string,
+	projectId: string,
 	storage: StorageManager,
-	apiKey: string
+	apiKey: string,
+	voyageKey: string,
 ): Promise<QueryResult[]> {
 	const allRecords = await storage.load();
-	const records = allRecords.filter(r => r.document_id === documentId);
+	let records = filterByScope(allRecords, scope, documentId, projectId);
 
 	if (records.length === 0) return [];
 
+	// For non-document scope, use embeddings to retrieve top N
+	if (scope !== 'document' && voyageKey) {
+		records = await ensureEmbeddings(records, storage, voyageKey);
+		const queryEmbedding = await generateEmbedding(query, voyageKey);
+		records = records
+			.filter(r => r.embedding)
+			.map(r => ({ record: r, score: cosineSimilarity(queryEmbedding, r.embedding!) }))
+			.sort((a, b) => b.score - a.score)
+			.slice(0, TOP_N)
+			.map(s => s.record);
+	}
+
 	const deletionsText = records.map((r, i) => `
---- Deletion ${i + 1} (${r.timestamp}) ---
+--- Deletion ${i + 1} (${r.timestamp}, ${r.document_id}) ---
 Context before: ${r.context_before}
 Deleted text: ${r.raw_text}
 Context after: ${r.context_after}
@@ -75,7 +125,7 @@ Context after: ${r.context_after}
 
 The writer is asking: "${query}"
 
-Below are sections of text they deleted from their current document, along with surrounding context.
+Below are sections of text they deleted, along with surrounding context.
 
 ${deletionsText}
 
