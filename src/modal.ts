@@ -2,6 +2,10 @@ import { App, Editor, Modal } from 'obsidian';
 import { DeletionRecord, StorageManager } from './storage';
 import { QueryResult, filterByScope, generateNames, queryDeletions, integrateIdea } from './query';
 import { SearchScope } from './settings';
+import { findRelated, RelatedItem } from './embeddings';
+
+const RELATED_TOP_N = 3;
+const RELATED_THRESHOLD = 0.65;
 
 export class QueryModal extends Modal {
 	private editor: Editor;
@@ -11,6 +15,7 @@ export class QueryModal extends Modal {
 	private apiKey: string;
 	private voyageKey: string;
 	private searchScope: SearchScope;
+	private cardElements: Map<string, { item: HTMLElement; details: HTMLElement }> = new Map();
 
 	constructor(
 		app: App,
@@ -177,6 +182,8 @@ export class QueryModal extends Modal {
 
 	private renderList(container: HTMLElement, records: DeletionRecord[], filterInput: HTMLInputElement) {
 		container.empty();
+		this.cardElements.clear();
+
 		const filter = filterInput.value.toLowerCase();
 		const filtered = filter
 			? records.filter(r => (r.name ?? r.raw_text).toLowerCase().includes(filter))
@@ -209,11 +216,43 @@ export class QueryModal extends Modal {
 			actions.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
 			this.addActionButtons(actions, { summary: record.name ?? '', excerpt: record.raw_text });
 
+			const related = findRelated(record, records, RELATED_TOP_N, RELATED_THRESHOLD);
+			if (related.length > 0) this.renderRelatedLinks(details, related);
+
 			item.addEventListener('click', () => {
 				const isOpen = details.style.display !== 'none';
 				details.style.display = isOpen ? 'none' : 'block';
 			});
+
+			this.cardElements.set(record.id, { item, details });
 		}
+	}
+
+	private renderRelatedLinks(container: HTMLElement, related: RelatedItem<DeletionRecord>[]) {
+		const wrap = container.createEl('div');
+		wrap.style.cssText = 'margin-top:12px; padding-top:8px; border-top:1px dashed var(--background-modifier-border); font-size:0.85em;';
+		const label = wrap.createSpan({ text: 'Related: ' });
+		label.style.color = 'var(--text-muted)';
+
+		related.forEach((rel, i) => {
+			if (i > 0) wrap.createSpan({ text: ', ' });
+			const link = wrap.createEl('a', { text: rel.item.name ?? 'Untitled' });
+			link.style.cssText = 'color:var(--text-accent); cursor:pointer; text-decoration:underline;';
+			link.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this.expandAndScrollTo(rel.item.id);
+			});
+		});
+	}
+
+	private expandAndScrollTo(id: string) {
+		const target = this.cardElements.get(id);
+		if (!target) return;
+		for (const [otherId, { details }] of this.cardElements) {
+			if (otherId !== id) details.style.display = 'none';
+		}
+		target.details.style.display = 'block';
+		target.item.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	}
 
 	private renderResults(container: HTMLElement, results: QueryResult[]) {

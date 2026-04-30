@@ -29,6 +29,27 @@ export async function generateEmbedding(text: string, apiKey: string): Promise<n
 	return result[0]!;
 }
 
+export interface RelatedItem<T> {
+	item: T;
+	similarity: number;
+}
+
+export function findRelated<T extends { id: string; embedding: number[] | null }>(
+	target: T,
+	candidates: T[],
+	topN: number,
+	threshold: number,
+): RelatedItem<T>[] {
+	if (!target.embedding) return [];
+	const scored: RelatedItem<T>[] = [];
+	for (const candidate of candidates) {
+		if (candidate.id === target.id || !candidate.embedding) continue;
+		const sim = cosineSimilarity(target.embedding, candidate.embedding);
+		if (sim >= threshold) scored.push({ item: candidate, similarity: sim });
+	}
+	return scored.sort((a, b) => b.similarity - a.similarity).slice(0, topN);
+}
+
 export function cosineSimilarity(a: number[], b: number[]): number {
 	let dot = 0;
 	let normA = 0;
