@@ -40,6 +40,11 @@ export class StorageManager {
 		await this.write(records);
 	}
 
+	async delete(id: string): Promise<void> {
+		const records = await this.load();
+		await this.write(records.filter(r => r.id !== id));
+	}
+
 	async updateEmbeddings(updates: Record<string, number[]>): Promise<void> {
 		const records = await this.load();
 		for (const record of records) {

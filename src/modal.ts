@@ -16,6 +16,7 @@ export class QueryModal extends Modal {
 	private voyageKey: string;
 	private searchScope: SearchScope;
 	private cardElements: Map<string, { item: HTMLElement; details: HTMLElement }> = new Map();
+	private onDelete?: (id: string) => Promise<void>;
 
 	constructor(
 		app: App,
@@ -110,6 +111,13 @@ export class QueryModal extends Modal {
 
 			listContainer.empty();
 			this.renderList(listContainer, scopedRecords, filterInput);
+		};
+
+		this.onDelete = async (id: string) => {
+			await this.storage.delete(id);
+			const idx = allRecords.findIndex(r => r.id === id);
+			if (idx >= 0) allRecords.splice(idx, 1);
+			await refreshList();
 		};
 
 		await refreshList();
@@ -213,8 +221,9 @@ export class QueryModal extends Modal {
 			excerpt.style.cssText = 'font-size:0.9em; color:var(--text-muted); margin:8px 0; white-space:pre-wrap;';
 
 			const actions = details.createEl('div');
-			actions.style.cssText = 'display:flex; gap:8px; margin-top:8px;';
+			actions.style.cssText = 'display:flex; gap:8px; margin-top:8px; align-items:center;';
 			this.addActionButtons(actions, { summary: record.name ?? '', excerpt: record.raw_text });
+			this.addTrashButton(actions, record.id);
 
 			const related = findRelated(record, records, RELATED_TOP_N, RELATED_THRESHOLD);
 			if (related.length > 0) this.renderRelatedLinks(details, related);
@@ -226,6 +235,30 @@ export class QueryModal extends Modal {
 
 			this.cardElements.set(record.id, { item, details });
 		}
+	}
+
+	private addTrashButton(container: HTMLElement, recordId: string) {
+		const btn = container.createEl('button', { text: 'Trash' });
+		btn.style.marginLeft = 'auto';
+		let confirming = false;
+		let timer: number | null = null;
+
+		btn.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			if (!confirming) {
+				confirming = true;
+				btn.setText('Confirm?');
+				btn.style.color = 'var(--text-error)';
+				timer = window.setTimeout(() => {
+					confirming = false;
+					btn.setText('Trash');
+					btn.style.color = '';
+				}, 3000);
+			} else {
+				if (timer !== null) window.clearTimeout(timer);
+				await this.onDelete?.(recordId);
+			}
+		});
 	}
 
 	private renderRelatedLinks(container: HTMLElement, related: RelatedItem<DeletionRecord>[]) {
