@@ -2,6 +2,8 @@
 
 An Obsidian plugin for writers who reason by writing — capturing the ideas you delete during drafting so you can recover and reintegrate them later.
 
+![WriteToReason interface](docs/screenshot.png)
+
 ## What it does
 
 When you write, you delete. A lot. Some of what you delete is just typo correction. But some of it is good thinking — paragraphs you cut because they didn't fit *here*, but that contained ideas worth keeping. WriteToReason captures those deletions automatically and gives you a way to find them again.
